@@ -1,13 +1,14 @@
 # 🗺️ Mapas Con OpenStreetMap
 
-| Desarrollador | Nombre |
+| | Nombre |
 |--------------|--------|
-| Desarrollador | <span style="color:#4da6ff">González Avalos César Fernando</span> |
+| Desarrollador | <font color="#4da6ff">González Avalos César Fernando</font> |
 
 ---
 
-## Imágenes Página Creada Para Encontrar Hospitales y Gasolineras
+## Imágenes De La Página Creada Para Encontrar Hospitales y Gasolineras
 
+---
 
 <img width="1919" height="1079" alt="image" src="https://github.com/user-attachments/assets/95847403-def6-4ff5-87c1-a3615a452637" />
 
