@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="main-container">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-map-marked-alt"></i> Busca un Lugar</h2>
+                <button id="toggleSidebar" class="toggle-btn" title="Ocultar panel">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+            </div>
+
+            <div class="search-container">
+                <form method="post">
+                    <div class="input-group">
+                        <input type="text" name="lugar" placeholder="Ingresa una ciudad o dirección" required>
+                        <button type="submit"><i class="fas fa-search"></i></button>
+                    </div>
+                </form>
+            </div>
+
+            {% if error %}
+                <div class="error-message">
+                    <p><i class="fas fa-exclamation-circle"></i> No se encontró el lugar. Intenta con otro nombre.</p>
+                </div>
+            {% endif %}
+
+            {% if lat %}
+            <div class="map-info">
+                <h3><i class="fas fa-location-dot"></i> {{nombre}}</h3>
+                <div class="legend">
+                    <div class="legend-item">
+                        <i class="fas fa-location-dot" style="color: #e74c3c;"></i>
+                        <span>Ubicación buscada</span>
+                    </div>
+                    <div class="legend-item">
+                        <i class="fas fa-gas-pump" style="color: #3498db;"></i>
+                        <span>Gasolineras</span>
+                    </div>
+                    <div class="legend-item">
+                        <i class="fas fa-hospital" style="color: #e74c3c;"></i>
+                        <span>Hospitales</span>
+                    </div>
+                    <div class="legend-item">
+                        <i class="fas fa-user" style="color: #27ae60;"></i>
+                        <span>Tu ubicación</span>
+                    </div>
+                </div>
+
+                <div id="details-panel" class="details-panel" style="display: none;">
+                    <button class="close-details" onclick="closeDetails()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <h4 id="details-title"></h4>
+                    <p id="details-type" class="details-type"></p>
+                    
+                    <div class="rating-section">
+                        <div class="stars" id="details-rating"></div>
+                        <span id="details-rating-count" class="rating-count"></span>
+                    </div>
+
+                    <div class="address-section">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <p id="details-address"></p>
+                    </div>
+
+                    <div class="coordinates-section">
+                        <p><strong>Coordenadas:</strong></p>
+                        <p id="details-coordinates" class="coordinates"></p>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button id="details-route-btn" class="btn-action btn-route">
+                            <i class="fas fa-route"></i> Ruta
+                        </button>
+                    </div>
+                </div>
+
+
+                <div class="controls">
+                    <button id="getUserLocation" class="btn-location">
+                        <i class="fas fa-crosshairs"></i> Obtener Mi Ubicación
+                    </button>
+                    <button id="clearRoute" class="btn-clear" style="display: none;">
+                        <i class="fas fa-times"></i> Limpiar Ruta
+                    </button>
+                </div>
+
+                <div id="info-panel" class="info-panel">
+                    <p><i class="fas fa-info-circle"></i> Haz clic en "Obtener Mi Ubicación" para ver rutas desde tu posición actual.</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="map-container">
+            <button id="fullscreenBtn" class="fullscreen-btn" title="Pantalla completa">
+                <i class="fas fa-expand"></i>
+            </button>
+            
+            {% if lat %}
+            <div id="map"></div>
+            {% else %}
+            <div class="map-placeholder">
+                <i class="fas fa-map-location-dot"></i>
+                <p>Busca una ubicación para ver el mapa</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if lat %}
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <script>
+        var lat = parseFloat('{{ lat }}');
+        var lon = parseFloat('{{ lon }}');
+        var nombre = '{{ nombre | safe }}';
+        var gasStations = {{ gas_stations | tojson | safe }};
+        var hospitals = {{ hospitals | tojson | safe }};
+
+        console.log('Gas Stations:', gasStations);
+        console.log('Hospitals:', hospitals);
+
+        var map = L.map('map').setView([lat, lon], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        var userMarker = null;
+        var routingControl = null;
+        var searchBounds = null;
+        var detailedMarkers = {};
+
+        {% if bbox %}
+        var bbox = '{{ bbox }}'.split(',');
+        searchBounds = L.latLngBounds(
+            [parseFloat(bbox[0]), parseFloat(bbox[2])],
+            [parseFloat(bbox[1]), parseFloat(bbox[3])]
+        );
+        {% endif %}
+
+        var locationIcon = L.divIcon({
+            html: '<i class="fas fa-location-dot" style="color: #e74c3c; font-size: 32px;"></i>',
+            className: 'custom-icon',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
+        });
+
+        var gasIcon = L.divIcon({
+            html: '<i class="fas fa-gas-pump" style="color: #3498db; font-size: 28px;"></i>',
+            className: 'custom-icon',
+            iconSize: [28, 28],
+            iconAnchor: [14, 28]
+        });
+
+        var hospitalIcon = L.divIcon({
+            html: '<i class="fas fa-hospital" style="color: #e74c3c; font-size: 28px;"></i>',
+            className: 'custom-icon',
+            iconSize: [28, 28],
+            iconAnchor: [14, 28]
+        });
+
+        var userIcon = L.divIcon({
+            html: '<i class="fas fa-user" style="color: #27ae60; font-size: 32px;"></i>',
+            className: 'custom-icon',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
+        });
+
+        L.marker([lat, lon], {icon: locationIcon}).addTo(map)
+            .bindPopup('<div class="popup-content"><strong><i class="fas fa-location-dot"></i> Ubicación buscada</strong><br>' + nombre + '</div>');
+
+               gasStations.forEach(function(station, index) {
+            if (station && station.lat && station.lon) {
+                var stationLat = parseFloat(station.lat);
+                var stationLon = parseFloat(station.lon);
+                
+                if (!isNaN(stationLat) && !isNaN(stationLon)) {
+                    var markerId = 'gas_' + index;
+                    var marker = L.marker([stationLat, stationLon], {icon: gasIcon}).addTo(map);
+                    
+                    detailedMarkers[markerId] = {
+                        type: 'gas',
+                        name: station.display_name || 'Gasolinera sin nombre',
+                        lat: stationLat,
+                        lon: stationLon,
+                        address: station.display_name || 'Dirección no disponible',
+                        phone: station.phone || 'No disponible',
+                        hours: station.opening_hours || 'No especificado',
+                        rating: Math.floor(Math.random() * 5) + 1,
+                        reviews: Math.floor(Math.random() * 200) + 1
+                    };
+
+                    var popupContent = '<div class="popup-content"><strong><i class="fas fa-gas-pump"></i> Gasolinera</strong><br>' +
+                                       (station.display_name || 'Sin nombre') +
+                                       '<br><button class="route-btn" onclick="showDetails(\'' + markerId + '\'); return false;"><i class="fas fa-info-circle"></i> Ver Detalles</button></div>';
+                    marker.bindPopup(popupContent);
+
+                    marker.on('mouseover', function(e) {
+                        this.openPopup();
+                    });
+
+                    marker.on('click', function(e) {
+                        showDetails(markerId);
+                    });
+                }
+            }
+        });
+
+        hospitals.forEach(function(hospital, index) {
+            if (hospital && hospital.lat && hospital.lon) {
+                var hospLat = parseFloat(hospital.lat);
+                var hospLon = parseFloat(hospital.lon);
+                
+                if (!isNaN(hospLat) && !isNaN(hospLon)) {
+                    var markerId = 'hospital_' + index;
+                    var marker = L.marker([hospLat, hospLon], {icon: hospitalIcon}).addTo(map);
+                    
+                    detailedMarkers[markerId] = {
+                        type: 'hospital',
+                        name: hospital.display_name || 'Hospital sin nombre',
+                        lat: hospLat,
+                        lon: hospLon,
+                        address: hospital.display_name || 'Dirección no disponible',
+                        rating: Math.floor(Math.random() * 5) + 1,
+                        reviews: Math.floor(Math.random() * 350) + 1
+                    };
+                    
+                    var popupContent = '<div class="popup-content"><strong><i class="fas fa-hospital"></i> Hospital</strong><br>' +
+                                       (hospital.display_name || 'Sin nombre') +
+                                       '<br><button class="route-btn" onclick="showDetails(\'' + markerId + '\'); return false;"><i class="fas fa-info-circle"></i> Ver Detalles</button></div>';
+                    marker.bindPopup(popupContent);
+
+                    marker.on('mouseover', function(e) {
+                        this.openPopup();
+                    });
+
+                    marker.on('click', function(e) {
+                        showDetails(markerId);
+                    });
+                }
+            }
+        });
+
+        function showDetails(markerId) {
+            if (!detailedMarkers[markerId]) return;
+            
+            var details = detailedMarkers[markerId];
+            var detailsPanel = document.getElementById('details-panel');
+            
+            document.getElementById('details-title').textContent = details.name;
+            
+            var typeText = details.type === 'gas' ? 'Gasolinera' : 'Hospital';
+            var typeIcon = details.type === 'gas' ? 'fa-gas-pump' : 'fa-hospital';
+            document.getElementById('details-type').innerHTML = '<i class="fas ' + typeIcon + '"></i> ' + typeText;
+            
+            var starsHtml = '';
+            for (var i = 1; i <= 5; i++) {
+                starsHtml += '<i class="fas fa-star' + (i <= details.rating ? '' : ' empty') + '"></i>';
+            }
+            document.getElementById('details-rating').innerHTML = starsHtml;
+            document.getElementById('details-rating-count').textContent = '(' + details.reviews + ' reseñas)';
+            
+            document.getElementById('details-address').textContent = details.address;
+            document.getElementById('details-coordinates').textContent = details.lat.toFixed(6) + ', ' + details.lon.toFixed(6);
+            
+            var routeBtn = document.getElementById('details-route-btn');
+            routeBtn.onclick = function() {
+                createRoute(details.lat, details.lon);
+            };
+            
+            detailsPanel.style.display = 'block';
+            
+            document.querySelector('.map-info').scrollTop = 0;
+        }
+
+        function closeDetails() {
+            document.getElementById('details-panel').style.display = 'none';
+        }
+
+        window.showDetails = showDetails;
+        window.closeDetails = closeDetails;
+
+        document.getElementById('getUserLocation').addEventListener('click', function() {
+            if (navigator.geolocation) {
+                document.getElementById('info-panel').innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Obteniendo tu ubicación...</p>';
+
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    var userLat = position.coords.latitude;
+                    var userLon = position.coords.longitude;
+
+                    if (searchBounds && !searchBounds.contains([userLat, userLon])) {
+                        document.getElementById('info-panel').innerHTML =
+                            '<p class="warning"><i class="fas fa-exclamation-triangle"></i> Tu ubicación está fuera del área de búsqueda. Las rutas pueden no estar disponibles.</p>';
+                    } else {
+                        document.getElementById('info-panel').innerHTML =
+                            '<p class="success"><i class="fas fa-check-circle"></i> Ubicación obtenida. Haz clic en los marcadores para trazar rutas.</p>';
+                    }
+
+                    if (userMarker) {
+                        map.removeLayer(userMarker);
+                    }
+
+                    userMarker = L.marker([userLat, userLon], {icon: userIcon}).addTo(map);
+                    userMarker.bindPopup('<div class="popup-content"><strong><i class="fas fa-user"></i> Tu Ubicación</strong><br>Estás aquí</div>');
+
+                    map.setView([userLat, userLon], 14);
+
+                }, function(error) {
+                    document.getElementById('info-panel').innerHTML =
+                        '<p class="warning"><i class="fas fa-times-circle"></i> No se pudo obtener tu ubicación. Verifica los permisos del navegador.</p>';
+                });
+            } else {
+                document.getElementById('info-panel').innerHTML =
+                    '<p class="warning"><i class="fas fa-times-circle"></i> Tu navegador no soporta geolocalización.</p>';
+            }
+        });
+
+        function createRoute(destLat, destLon) {
+            if (!userMarker) {
+                alert('Primero debes obtener tu ubicación');
+                return;
+            }
+
+            var userLatLng = userMarker.getLatLng();
+
+            if (searchBounds && !searchBounds.contains(userLatLng)) {
+                alert('Tu ubicación está fuera del área de búsqueda');
+                return;
+            }
+
+            if (routingControl) {
+                map.removeControl(routingControl);
+            }
+
+            routingControl = L.Routing.control({
+                waypoints: [
+                    L.latLng(userLatLng.lat, userLatLng.lng),
+                    L.latLng(destLat, destLon)
+                ],
+                routeWhileDragging: true,
+                showAlternatives: false,
+                lineOptions: {
+                    styles: [{color: '#4a90e2', opacity: 0.7, weight: 5}]
+                },
+                createMarker: function() { return null; }
+            }).addTo(map);
+
+            document.getElementById('clearRoute').style.display = 'inline-block';
+            document.getElementById('info-panel').innerHTML =
+                '<p class="success"><i class="fas fa-check-circle"></i> Ruta trazada exitosamente.</p>';
+        }
+
+        document.getElementById('clearRoute').addEventListener('click', function() {
+            if (routingControl) {
+                map.removeControl(routingControl);
+                routingControl = null;
+                this.style.display = 'none';
+                document.getElementById('info-panel').innerHTML =
+                    '<p><i class="fas fa-info-circle"></i> Haz clic en los marcadores para trazar una nueva ruta.</p>';
+            }
+        });
+
+        var isFullscreen = false;
+        document.getElementById('fullscreenBtn').addEventListener('click', function() {
+            var sidebar = document.getElementById('sidebar');
+            var mapContainer = document.querySelector('.map-container');
+            var icon = this.querySelector('i');
+            
+            isFullscreen = !isFullscreen;
+            
+            if (isFullscreen) {
+                sidebar.classList.add('hidden');
+                mapContainer.classList.add('fullscreen');
+                icon.classList.remove('fa-expand');
+                icon.classList.add('fa-compress');
+                this.title = 'Salir de pantalla completa';
+            } else {
+                sidebar.classList.remove('hidden');
+                mapContainer.classList.remove('fullscreen');
+                icon.classList.remove('fa-compress');
+                icon.classList.add('fa-expand');
+                this.title = 'Pantalla completa';
+            }
+            
+            setTimeout(function() {
+                map.invalidateSize();
+            }, 300);
+        });
+
+        document.getElementById('toggleSidebar').addEventListener('click', function() {
+            var sidebar = document.getElementById('sidebar');
+            var icon = this.querySelector('i');
+            
+            sidebar.classList.toggle('collapsed');
+            
+            if (sidebar.classList.contains('collapsed')) {
+                icon.classList.remove('fa-chevron-left');
+                icon.classList.add('fa-chevron-right');
+                this.title = 'Mostrar panel';
+            } else {
+                icon.classList.remove('fa-chevron-right');
+                icon.classList.add('fa-chevron-left');
+                this.title = 'Ocultar panel';
+            }
+            
+            setTimeout(function() {
+                map.invalidateSize();
+            }, 300);
+        });
+
+        window.createRoute = createRoute;
+
+        setTimeout(function() {
+            map.invalidateSize();
+        }, 250);
+    </script>
+    {% endif %}
+</body>
+</html>
